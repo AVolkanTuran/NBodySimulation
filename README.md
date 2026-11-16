@@ -1,2 +1,89 @@
 # NBodySimulation
-Parallelized N-Body Simulation
+
+A 2D gravitational N-body simulation in C++, with a Pygame trajectory viewer.
+The current solver is serial and uses softened pairwise gravity. OpenMP,
+Barnes-Hut, collisions, spaceships, and 3D/relativistic effects are future work.
+
+## Build and record a simulation
+
+Requires CMake and a C++11 compiler:
+
+```powershell
+cmake -S . -B build
+cmake --build build --config Release
+.\build\Release\nbody_simulation.exe --output trajectory.csv
+```
+
+For single-configuration generators (such as MinGW Makefiles), the executable
+is `.\build\nbody_simulation.exe` instead.
+To select MinGW explicitly, configure with
+`cmake -S . -B build -G "MinGW Makefiles"`. MinGW builds link the GCC/C++ runtimes
+statically to avoid conflicting runtime DLLs on the system PATH.
+
+Running without arguments preserves the original 100-body, 10,000-step
+simulation and console diagnostics. `--output` additionally writes every
+particle's position to CSV; it does not change the physics.
+
+```powershell
+.\build\Release\nbody_simulation.exe --output trajectory.csv --steps 2000 --sample-every 5
+```
+
+`--steps` defaults to 10000 and `--sample-every` defaults to 10. Both must be
+positive integers. Output includes the initial state, each sampled state, and
+the final state even when the sampling interval does not divide the step count.
+The timestep is 0.001 in simulation units, not physical seconds.
+
+## Animate with Pygame
+
+Requires Python 3.10+:
+
+```powershell
+python -m pip install -r requirements.txt
+python visualize.py trajectory.csv
+```
+
+Optional: `python visualize.py trajectory.csv --speed 0.25` for slower playback.
+The viewer replays the C++ results; it does not recompute gravity in Python.
+Playback follows recorded simulation timestamps, independently of the render
+rate (capped at 60 FPS). The CSV is loaded into memory before playback.
+
+| Control | Action |
+| --- | --- |
+| Space | Pause/resume |
+| Right arrow | Pause and advance one recorded frame |
+| R | Restart and reset the camera/trails (preserves pause state) |
+| T | Toggle the last 80 recorded positions as trails |
+| F | Re-enable automatic camera fitting |
+| Mouse wheel | Zoom at the cursor; disable automatic fitting |
+| Left-drag | Pan; disable automatic fitting |
+| + / - | Double/halve playback speed |
+| Escape | Quit |
+
+Colors identify particles consistently. Dot radii scale with the square root
+of mass (clamped for visibility); they are visual markers, not physical sizes
+or collision boundaries. The current initial conditions collapse a diagonal
+line of stationary particles, so particles can scatter rapidly. The camera
+automatically fits the current particles until you zoom or pan; use **F** to
+resume automatic fitting or pause and step through the collapse.
+
+### Trajectory format
+
+```csv
+step,time,id,mass,x,y
+0,0,0,10,0,0
+0,0,1,10,-0.01,-0.01
+```
+
+Each frame has one row per particle, with stable nonnegative IDs and positive,
+unchanging masses. Frames must increase in step and time; every row in a frame
+has the same timestamp. Coordinates and timestamps must be finite. The viewer
+reports invalid files rather than silently dropping particles.
+
+## Tests
+
+```powershell
+python -m unittest -v test_visualize
+```
+
+Rendering tests use SDL's headless driver. Simulator integration tests also run
+when a compiled executable exists in `build` or `build\Release`.
