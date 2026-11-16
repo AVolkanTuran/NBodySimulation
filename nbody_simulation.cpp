@@ -79,18 +79,56 @@ void write_frame(ostream& output, const vector<Body>& bodies, int step) {
     }
 }
 
+vector<Body> solar_system() {
+    // Masses in solar masses, distances in AU; angles are illustrative, not ephemerides.
+    const double masses[] = {1.660e-7, 2.447e-6, 3.003e-6, 3.227e-7,
+                             9.545e-4, 2.858e-4, 4.366e-5, 5.151e-5};
+    const double distances[] = {0.387, 0.723, 1.0, 1.524, 5.203, 9.537, 19.191, 30.069};
+    const double angles[] = {0.0, 1.1, 2.2, 3.3, 4.0, 5.0, 5.7, 0.7};
+    vector<Body> bodies;
+    bodies.push_back({1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
+    for (size_t i = 0; i < 8; i++) {
+        double r = distances[i];
+        double c = cos(angles[i]);
+        double s = sin(angles[i]);
+        // Circular two-body speed for the same softened force used by calc_acc.
+        double speed = sqrt(G * (1.0 + masses[i]) * r * r /
+                            pow(r * r + eps * eps, 1.5));
+        bodies.push_back({masses[i], r * c, r * s, -speed * s, speed * c, 0.0, 0.0});
+    }
+
+    double total_mass = 0.0, x = 0.0, y = 0.0, vx = 0.0, vy = 0.0;
+    for (const Body& body : bodies) {
+        total_mass += body.mass;
+        x += body.mass * body.x;
+        y += body.mass * body.y;
+        vx += body.mass * body.vx;
+        vy += body.mass * body.vy;
+    }
+    for (Body& body : bodies) {
+        body.x -= x / total_mass;
+        body.y -= y / total_mass;
+        body.vx -= vx / total_mass;
+        body.vy -= vy / total_mass;
+    }
+    return bodies;
+}
+
 int run(int argc, char* argv[]) {
     int steps = 10000;
     int sample_every = 10;
     string output_path;
+    string preset = "default";
     for (int i = 1; i < argc; i++) {
         string option = argv[i];
         if (option == "--help") {
             cout << "Usage: nbody_simulation [--output trajectory.csv]"
-                 << " [--steps 10000] [--sample-every 10]\n";
+                 << " [--steps 10000] [--sample-every 10]"
+                 << " [--preset default|solar-system]\n";
             return 0;
         }
-        if (option != "--output" && option != "--steps" && option != "--sample-every") {
+        if (option != "--output" && option != "--steps" &&
+            option != "--sample-every" && option != "--preset") {
             throw invalid_argument("Unknown option: " + option);
         }
         if (++i >= argc) {
@@ -100,6 +138,11 @@ int run(int argc, char* argv[]) {
             output_path = argv[i];
             if (output_path.empty()) {
                 throw invalid_argument("Output path must not be empty");
+            }
+        } else if (option == "--preset") {
+            preset = argv[i];
+            if (preset != "default" && preset != "solar-system") {
+                throw invalid_argument("Unknown preset: " + preset);
             }
         } else if (option == "--steps") {
             steps = positive_integer(argv[i]);
@@ -115,19 +158,22 @@ int run(int argc, char* argv[]) {
         }
         output << setprecision(17) << "step,time,id,mass,x,y\n";
     }
-    //Just for test purposes for now
-    const int N = 100;
-
-    vector<Body> bodies(N);
-
-    for (int i = 0; i < N; i++) {
-        bodies[i].mass = 10;
-        bodies[i].x = pow(-1, i)*i/100.0;
-        bodies[i].y = pow(-1, i)*i/100.0;
-        bodies[i].vx = 0.0;
-        bodies[i].vy = 0.0;
-        bodies[i].ax = 0.0;
-        bodies[i].ay = 0.0;
+    vector<Body> bodies;
+    if (preset == "solar-system") {
+        bodies = solar_system();
+    } else {
+        // Original test scenario.
+        const int N = 100;
+        bodies.resize(N);
+        for (int i = 0; i < N; i++) {
+            bodies[i].mass = 10;
+            bodies[i].x = pow(-1, i)*i/100.0;
+            bodies[i].y = pow(-1, i)*i/100.0;
+            bodies[i].vx = 0.0;
+            bodies[i].vy = 0.0;
+            bodies[i].ax = 0.0;
+            bodies[i].ay = 0.0;
+        }
     }
 
     if (output.is_open()) {

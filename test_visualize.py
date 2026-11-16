@@ -1,3 +1,4 @@
+import math
 import os
 import subprocess
 import tempfile
@@ -121,6 +122,24 @@ class ViewerTests(unittest.TestCase):
                 main()
                 flip.assert_called_once()
 
+    def test_solar_labels_and_colors_render(self):
+        frame = Frame(0, 0, tuple(Particle(i, 1, i, 0) for i in range(9)))
+        viewer = Viewer([frame], (1100, 750), 1, solar_system=True)
+        self.assertEqual(len(viewer.labels), 9)
+        self.assertNotEqual(viewer.color(0), viewer.color(3))
+        surface = pygame.Surface(viewer.size)
+        viewer.draw(surface, 60)
+        self.assertEqual(surface.get_at(viewer.screen_position(0, 0))[:3], (235, 245, 255))
+
+    def test_solar_labels_reject_wrong_trajectory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "trajectory.csv"
+            path.write_text("step,time,id,mass,x,y\n0,0,0,10,0,0\n", encoding="utf-8")
+            with patch("sys.argv", ["visualize.py", str(path), "--solar-system"]), \
+                    self.assertRaises(SystemExit) as result:
+                main()
+            self.assertEqual(result.exception.code, 1)
+
 
 ROOT = Path(__file__).resolve().parent
 EXECUTABLE = next((path for path in (
@@ -143,6 +162,14 @@ class SimulatorTests(unittest.TestCase):
                  "--output", str(path)], capture_output=True, text=True, check=True
             )
             self.assertEqual(exported.stdout, baseline.stdout)
+            default_path = Path(directory) / "explicit-default.csv"
+            explicit = subprocess.run(
+                [str(EXECUTABLE), "--preset", "default", "--steps", "12",
+                 "--sample-every", "5", "--output", str(default_path)],
+                capture_output=True, text=True, check=True
+            )
+            self.assertEqual(explicit.stdout, exported.stdout)
+            self.assertEqual(default_path.read_bytes(), path.read_bytes())
             frames = load_trajectory(path)
             self.assertEqual([frame.step for frame in frames], [0, 5, 10, 12])
             self.assertEqual([frame.time for frame in frames], [0, 0.005, 0.01, 0.012])
@@ -153,7 +180,7 @@ class SimulatorTests(unittest.TestCase):
     def test_invalid_arguments_and_unwritable_output_fail_explicitly(self):
         for arguments in (
             ["--steps", "0"], ["--sample-every", "3bad"], ["--output"], ["--unknown"],
-            ["--output", str(ROOT / "build")],
+            ["--output", str(ROOT / "build")], ["--preset", "invalid"], ["--preset"],
         ):
             with self.subTest(arguments=arguments):
                 result = subprocess.run(
@@ -161,6 +188,38 @@ class SimulatorTests(unittest.TestCase):
                 )
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("Error:", result.stderr)
+
+    def test_solar_system_has_approximate_orbits_and_center_of_mass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "solar.csv"
+            subprocess.run(
+                [str(EXECUTABLE), "--preset", "solar-system", "--steps", "6283",
+                 "--sample-every", "100", "--output", str(path)],
+                capture_output=True, text=True, check=True
+            )
+            frames = load_trajectory(path)
+            self.assertTrue(all(len(frame.particles) == 9 for frame in frames))
+            initial = frames[0].particles
+            self.assertEqual([p.id for p in initial], list(range(9)))
+            self.assertEqual(initial[0].mass, 1)
+            self.assertAlmostEqual(initial[3].mass, 3.003e-6)
+            self.assertAlmostEqual(sum(p.mass * p.x for p in initial), 0, places=14)
+            self.assertAlmostEqual(sum(p.mass * p.y for p in initial), 0, places=14)
+            final = frames[-1].particles
+            self.assertAlmostEqual(sum(p.mass * p.x for p in final), 0, places=12)
+            self.assertAlmostEqual(sum(p.mass * p.y for p in final), 0, places=12)
+            for frame in frames:
+                sun = frame.particles[0]
+                for planet_id, expected_radius in ((1, 0.387), (3, 1.0), (5, 5.203)):
+                    planet = frame.particles[planet_id]
+                    radius = math.hypot(planet.x - sun.x, planet.y - sun.y)
+                    self.assertLess(abs(radius - expected_radius), 0.02 * expected_radius)
+            sun, earth = frames[-1].particles[0], frames[-1].particles[3]
+            start_sun, start_earth = initial[0], initial[3]
+            self.assertLess(math.hypot(
+                (earth.x - sun.x) - (start_earth.x - start_sun.x),
+                (earth.y - sun.y) - (start_earth.y - start_sun.y)
+            ), 0.08)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,14 @@ from pathlib import Path
 
 import pygame
 
+SOLAR_NAMES = ("Sun", "Mercury", "Venus", "Earth", "Mars",
+               "Jupiter", "Saturn", "Uranus", "Neptune")
+SOLAR_COLORS = (
+    (255, 215, 90), (190, 185, 175), (235, 190, 120), (90, 165, 255),
+    (235, 110, 75), (220, 180, 145), (230, 210, 155), (130, 225, 225),
+    (95, 135, 255),
+)
+
 
 @dataclass(frozen=True)
 class Particle:
@@ -80,7 +88,8 @@ def load_trajectory(path: Path) -> list[Frame]:
 
 
 class Viewer:
-    def __init__(self, frames: list[Frame], size: tuple[int, int], speed: float):
+    def __init__(self, frames: list[Frame], size: tuple[int, int], speed: float,
+                 solar_system: bool = False):
         self.frames = frames
         self.size = size
         self.speed = speed
@@ -94,6 +103,11 @@ class Viewer:
         self.trails: dict[int, deque[tuple[float, float]]] = {}
         self.font = pygame.font.Font(None, 24)
         self.small_font = pygame.font.Font(None, 20)
+        self.solar_system = solar_system
+        self.labels = [
+            self.small_font.render(name, True, color)
+            for name, color in zip(SOLAR_NAMES, SOLAR_COLORS)
+        ] if solar_system else []
         self.record_trails()
         self.fit()
 
@@ -163,8 +177,9 @@ class Viewer:
         if self.auto_fit and self.index != previous_index:
             self.fit()
 
-    @staticmethod
-    def color(particle_id: int) -> tuple[int, int, int]:
+    def color(self, particle_id: int) -> tuple[int, int, int]:
+        if self.solar_system:
+            return SOLAR_COLORS[particle_id]
         color = pygame.Color(0)
         color.hsva = ((particle_id * 137.508) % 360, 55, 100, 100)
         return color.r, color.g, color.b
@@ -182,9 +197,12 @@ class Viewer:
         for particle in self.frames[self.index].particles:
             position = self.screen_position(particle.x, particle.y)
             if surface.get_clip().collidepoint(position):
-                radius = max(2, min(8, round(math.sqrt(particle.mass))))
+                radius = (7 if particle.id == 0 else 4) if self.solar_system else \
+                    max(2, min(8, round(math.sqrt(particle.mass))))
                 pygame.draw.circle(surface, self.color(particle.id), position, radius)
                 pygame.draw.circle(surface, (235, 245, 255), position, 1)
+                if self.solar_system:
+                    surface.blit(self.labels[particle.id], (position[0] + 8, position[1] - 8))
         surface.set_clip(None)
         pygame.draw.rect(surface, (17, 25, 43), (0, 0, width, 90))
         frame = self.frames[self.index]
@@ -219,9 +237,13 @@ def main() -> None:
     parser.add_argument("trajectory", type=Path, nargs="?", default=Path("trajectory.csv"))
     parser.add_argument("--speed", type=positive_float, default=1.0,
                         help="Simulation time units per wall-clock second (default: 1)")
+    parser.add_argument("--solar-system", action="store_true",
+                        help="Label and color IDs from the solar-system preset")
     args = parser.parse_args()
     try:
         frames = load_trajectory(args.trajectory)
+        if args.solar_system and [p.id for p in frames[0].particles] != list(range(9)):
+            raise ValueError("Solar-system labels require particle IDs 0 through 8")
     except (OSError, ValueError) as error:
         parser.exit(1, f"Error: {error}\n")
 
@@ -229,7 +251,7 @@ def main() -> None:
     try:
         surface = pygame.display.set_mode((1100, 750), pygame.RESIZABLE)
         pygame.display.set_caption("N-body simulation")
-        viewer = Viewer(frames, surface.get_size(), args.speed)
+        viewer = Viewer(frames, surface.get_size(), args.speed, args.solar_system)
         clock = pygame.time.Clock()
         running = True
         while running:
