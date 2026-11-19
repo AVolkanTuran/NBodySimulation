@@ -1,8 +1,8 @@
 # NBodySimulation
 
 A 2D gravitational N-body simulation in C++, with a Pygame trajectory viewer.
-The current solver is serial and uses softened pairwise gravity. OpenMP,
-Barnes-Hut, collisions, spaceships, and 3D/relativistic effects are future work.
+The current solver is serial and uses softened pairwise gravity. 
+Barnes-Hut, spaceships, and 3D/relativistic effects are future work.
 
 ## Build and record a simulation
 
